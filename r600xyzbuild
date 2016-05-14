@@ -1,0 +1,171 @@
+#!/usr/bin/env python
+#-*- coding: utf-8 -*-
+# This file is part of r600xyz.
+#
+# Copyright (C) 2016 Vedran Miletić <rivanvx@gmail.com>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+from sys import argv
+from os import environ
+from subprocess import Popen, PIPE
+
+html_software_versions = {'semantic_ui_version': '2.1.8', 'font_awesome_version': '4.6.1'}
+
+html_header = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Standard Meta -->
+  <meta charset="utf-8" />
+  <meta name="description" content="Description of environment variables useful for r600 and radeonsi Mesa 3D Gallium drivers." />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+
+  <!-- Site Properities -->
+  <title>R600 and RadeonSI Mesa 3D environment variables | r600.xyz</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/{semantic_ui_version}/semantic.min.css" rel="stylesheet" type="text/css" />
+  <link href="https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic&amp;subset=latin,latin-ext" rel="stylesheet" type="text/css" />
+  <link href="https://maxcdn.bootstrapcdn.com/font-awesome/{font_awesome_version}/css/font-awesome.min.css" rel="stylesheet" type="text/css" />
+  <link href="images/favicon.png" rel="icon" type="image/png" />
+
+  <style type="text/css">
+  .container {{
+    margin-top: 1.5em;
+  }}
+  </style>
+</head>
+
+<body>
+
+<div class="ui center aligned container">
+  <div class="ui message">
+    <h1 class="ui header">R600 and RadeonSI Mesa 3D environment variables</h1>
+    <p>Usage: <code>DEBUG_OPTION=flag1,flag2 ./command</code> in shell and <code>DEBUG_OPTION=flag1,flag2 %command%</code> in <a href="http://store.steampowered.com/about/" target="_blank">Steam</a></p>
+  </div>
+</div>
+
+<div class="ui container">
+  <table class="ui celled table">
+    <thead>
+      <tr>
+        <th>Option</th>
+        <th>Flag(s)</th>
+      </tr>
+    </thead>
+    <tbody>
+""".format(**html_software_versions)
+
+html_table_option_before = """\
+      <tr>
+        <td>
+          <div class="ui header">{option}</div>
+        </td>
+        <td>
+"""
+
+html_table_flag = "          <strong><code>{flag}</code></strong> {flag_description}"
+html_table_flag_break = "<br />\n"
+html_table_flag_no_break = "\n"
+
+html_table_option_after = """\
+        </td>
+      </tr>
+"""
+
+html_footer = """\
+    </tbody>
+  </table>
+</div>
+
+<div class="ui center aligned segment">
+  <div class="column">
+    <span>&copy; <a href="https://vedran.miletic.net/" target="_blank">Vedran Miletić</a>, 2016 onwards. | Design: <a href="http://semantic-ui.com/" target="_blank">Semantic UI</a>; <a href="https://html5.validator.nu/?doc=https%3A%2F%2Fr600.xyz%2F" target="_blank">valid HTML5</a>. | Hosting: <a href="https://www.digitalocean.com/" target="_blank">DigitalOcean</a>, <a href="https://www.mythic-beasts.com/ipv6/health-check?domain=r600.xyz" target="_blank">IPv6 enabled</a>. | Domain: <a href="https://www.namecheap.com/" target="_blank">Namecheap</a>.</span>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/{semantic_ui_version}/semantic.min.js"></script>
+
+</body>
+
+</html>
+""".format(**html_software_versions)
+
+def dump_debug_options_flags_to_file(filename):
+    debug_options_flags_file = open(filename, 'w')
+    for option_variable in ['R600_DEBUG', 'CLOVER_DEBUG']:
+        if "CLOVER" in option_variable:
+            info_command = "/usr/bin/clinfo"
+        else:
+            info_command = "/usr/bin/glxinfo"
+        # we have to append to environ here instead of replacing it as otherwise glxinfo will complain about missing
+        # DISPLAY variable
+        option_env = environ.copy()
+        option_env.update({option_variable: "help"})
+        # call command and grab stderr
+        option_call = Popen(info_command, stdout=PIPE, stderr=PIPE, env=option_env)
+        option_stderr = option_call.communicate()[1]
+        debug_options_flags_file.write(option_stderr)
+    debug_options_flags_file.close()
+
+def parse_debug_options_flags_from_file(filename, html_output_filename='index.html'):
+    try:
+        debug_options_flags_file = open(filename)
+        debug_options = {}
+        debug_option = ""
+        for line in debug_options_flags_file.readlines():
+            if "debug_get_flags_option" in line:
+                # strip newline character, split by space, take the last word until the last char which is colon
+                debug_option = line.strip().split()[-1][:-1]
+                debug_options[debug_option] = {}
+            else:
+                line_split = line.strip().split()
+                debug_flag = line_split[1]
+                # from column 3 onwards the description follows, we strip newline character at the end
+                debug_flag_explanation = " ".join(line_split[3:]).strip()
+                debug_options[debug_option][debug_flag] = debug_flag_explanation
+        debug_options_flags_file.close()
+        html_output_file = open(html_output_filename, 'w')
+        html_output_file.write(html_header)
+        for debug_option in sorted(debug_options.keys()):
+            html_output_file.write(html_table_option_before.format(option=debug_option))
+            for debug_flag in sorted(debug_options[debug_option].keys()):
+                html_output_file.write(html_table_flag.format(flag=debug_flag, flag_description=debug_options[debug_option][debug_flag]))
+                if debug_flag != sorted(debug_options[debug_option].keys())[-1]:
+                    html_output_file.write(html_table_flag_break)
+                else:
+                    html_output_file.write(html_table_flag_no_break)
+            html_output_file.write(html_table_option_after)
+        html_output_file.write(html_footer)
+        html_output_file.close()
+    except IOError:
+        print("Unable to open file {0}".format(filename))
+
+if __name__ == '__main__':
+    try:
+        filename = argv[2]
+    except IndexError:
+        filename = "mesa_debug_options_dump.txt"
+        print("File name not specified, using {0}.".format(filename))
+    try:
+        if argv[1] == 'dump':
+            print("Calling Mesa 3D glxinfo and clinfo and dumping output to file {0}.".format(filename))
+            dump_debug_options_flags_to_file(filename)
+        elif argv[1] == 'parse':
+            print("Parsing the options and flags from file {0}.".format(filename))
+            parse_debug_options_flags_from_file(filename)
+        else:
+            print("Unsupported option {0}.".format(argv[1]))
+    except IndexError:
+        print("Usage: {0} dump [filename]; {0} parse [filename]".format(argv[0]))
